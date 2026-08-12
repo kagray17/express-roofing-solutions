@@ -110,7 +110,7 @@ button { font: inherit; cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 24px;
+  padding: 10px 24px;
   gap: 24px;
 }
 .logo { display: flex; align-items: center; gap: 10px; }
@@ -122,8 +122,8 @@ button { font: inherit; cursor: pointer; }
   padding: 6px 10px;
 }
 .logo-img { height: 34px; width: auto; display: block; }
-.site-header .logo-badge { padding: 8px 14px; }
-.site-header .logo-img { height: 50px; }
+.site-header .logo-badge { padding: 6px 14px; }
+.site-header .logo-img { height: 72px; }
 .main-nav { display: flex; gap: 28px; }
 .main-nav a {
   color: var(--text);
@@ -619,7 +619,7 @@ section { padding: 90px 0; }
 @media (max-width: 720px) {
   .main-nav, .header-cta { display: none; }
   .nav-toggle { display: flex; }
-  .site-header .logo-img { height: 40px; }
+  .site-header .logo-img { height: 52px; }
   .site-header.open .main-nav {
     display: flex;
     flex-direction: column;
