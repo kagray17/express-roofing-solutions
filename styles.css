@@ -528,9 +528,15 @@ section{position:relative}
 .est-attrib{margin-top:8px;color:var(--muted);font-size:.78rem}
 .est-actions,.est-result-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
 .est-actions .btn,.est-result-actions .btn,.est-fallback .btn{min-height:48px}
+.est-actions .btn[hidden]{display:none !important}
 .est-actions .btn:disabled,.est-result-actions .btn:disabled{opacity:.45;cursor:not-allowed}
 .leaflet-control-attribution{font-size:11px;line-height:1.3;max-width:min(70vw,520px);white-space:normal}
 .est-note{margin-top:12px;color:var(--muted);font-size:.92rem}
+.building-list{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:8px}
+.building-list[hidden]{display:none !important}
+.building-list button{width:100%;text-align:left;font:inherit;font-weight:700;min-height:48px;padding:12px 14px;border-radius:14px;border:2px solid var(--line);background:#fff;color:var(--text);cursor:pointer}
+.building-list button[aria-pressed="true"]{border-color:var(--lime-600);background:#f4fbe3}
+.vertex-icon{cursor:grab}
 .est-fallback{margin-top:16px;padding:16px;border-radius:16px;background:var(--bg);border:1px dashed #b7c8bc;display:grid;gap:14px}
 .est-fallback[hidden]{display:none !important}
 .est-fallback .est-split{display:grid;grid-template-columns:1fr 140px;gap:12px}

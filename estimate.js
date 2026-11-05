@@ -18,6 +18,14 @@
     ],
     materialLabel: 'GAF architectural asphalt shingles',
     pricePerSquare: { low: 425, high: 500 },
+    overpassRadiusM: 40,
+    overpassTimeoutMs: 8000,
+    residentialSqFt: { min: 600, max: 6000 },
+    overpassEndpoints: [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass.osm.ch/api/interpreter'
+    ],
     disclaimer: 'Ballpark estimate based on satellite measurement; final price confirmed after a free on-site inspection.',
     phoneDisplay: '(765) 490-2914',
     phoneTel: '+17654902914',
@@ -38,6 +46,8 @@
     livingSqFt: null,
     stories: null,
     pitch: null,
+    mode: 'manual',
+    buildings: [],
     suggestIndex: -1,
     suggestions: []
   };
@@ -48,8 +58,12 @@
   let previewLine;
   let polygonLayer;
   let vertexLayer;
+  let buildingLayer;
+  let buildingHandles;
   let searchTimer;
   let searchAbort;
+  let lookupGen = 0;
+  let suppressBuildingToggle = false;
   let lastSummary = '';
 
   const $ = (sel) => document.querySelector(sel);
@@ -75,13 +89,33 @@
     return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } };
   }
 
-  function areaSqFtFromLatLngs(latlngs) {
-    if (!latlngs || latlngs.length < 3) return null;
+  function closeRingLngLat(ring) {
+    const copy = ring.map((pair) => [pair[1], pair[0]]);
+    const first = copy[0];
+    const last = copy[copy.length - 1];
+    if (!last || first[0] !== last[0] || first[1] !== last[1]) copy.push([first[0], first[1]]);
+    return copy;
+  }
+
+  function polygonFeature(outer, holes) {
+    return {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Polygon', coordinates: [closeRingLngLat(outer), ...(holes || []).map(closeRingLngLat)] }
+    };
+  }
+
+  function areaSqFtFromRings(outer, holes) {
+    if (!outer || outer.length < 3) return null;
     if (typeof turf === 'undefined' || typeof turf.area !== 'function') {
       throw new Error('Geodesic area library failed to load.');
     }
-    const meters = turf.area(toPolygonFeature(latlngs));
+    const meters = turf.area(polygonFeature(outer, holes));
     return meters * ESTIMATE_CONFIG.sqFtPerSqMeter;
+  }
+
+  function areaSqFtFromLatLngs(latlngs) {
+    return areaSqFtFromRings(latlngs, []);
   }
 
   function computeEstimate({ footprintSqFt, pitch }) {
@@ -159,8 +193,10 @@
     }).addTo(map);
     vertexLayer = L.layerGroup().addTo(map);
     map.doubleClickZoom.disable();
+    buildingLayer = L.layerGroup().addTo(map);
+    buildingHandles = L.layerGroup().addTo(map);
     map.on('click', (event) => {
-      if (state.step !== 1 || state.closed) return;
+      if (state.mode !== 'manual' || state.step !== 1 || state.closed) return;
       addPoint(event.latlng);
     });
     return map;
@@ -190,7 +226,7 @@
     if (finish) finish.disabled = state.closed || state.points.length < 3;
     if (undo) undo.disabled = state.closed || state.points.length === 0;
     const status = $('#outline-status');
-    if (!state.closed) {
+    if (state.mode === 'manual' && !state.closed) {
       if (state.points.length === 0) setStatus(status, 'Tap each corner of the roof. Use Finish outline after at least three points.');
       else if (state.points.length < 3) setStatus(status, `${state.points.length} point${state.points.length === 1 ? '' : 's'} placed. Add ${3 - state.points.length} more.`);
       else setStatus(status, `${state.points.length} points placed. Tap Finish outline to measure the footprint.`);
@@ -226,6 +262,7 @@
       state.footprintSqFt = null;
       state.source = null;
     }
+    clearBuildings();
     if (polygonLayer && map) map.removeLayer(polygonLayer);
     polygonLayer = null;
     if (previewLine && map) map.removeLayer(previewLine);
@@ -288,13 +325,447 @@
     return sqft;
   }
 
-  function selectPlace(place) {
+  function openRing(geometry) {
+    if (!geometry || geometry.length < 4) return null;
+    const ring = geometry.map((point) => [Number(point.lat), Number(point.lon)]).filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+    if (ring.length < 4) return null;
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (first[0] === last[0] && first[1] === last[1]) ring.pop();
+    return ring.length >= 3 ? ring : null;
+  }
+
+  function buildingKind(tags) {
+    const names = {
+      house: 'House',
+      residential: 'House',
+      detached: 'House',
+      semidetached_house: 'House',
+      terrace: 'House',
+      bungalow: 'House',
+      yes: 'Building',
+      garage: 'Garage',
+      garages: 'Garage',
+      shed: 'Shed',
+      roof: 'Roof',
+      apartments: 'Apartments',
+      commercial: 'Commercial',
+      retail: 'Retail',
+      industrial: 'Industrial',
+      civic: 'Civic building',
+      public: 'Public building',
+      church: 'Church',
+      school: 'School',
+      warehouse: 'Warehouse'
+    };
+    const key = (tags && tags.building) || 'yes';
+    return names[key] || key.replace(/_/g, ' ').replace(/^\w/, (char) => char.toUpperCase());
+  }
+
+  function polygonContains(outer, holes, lat, lng) {
+    return turf.booleanPointInPolygon(turf.point([lng, lat]), polygonFeature(outer, holes));
+  }
+
+  function polygonDistance(outer, holes, lat, lng) {
+    const center = turf.centroid(polygonFeature(outer, holes));
+    return turf.distance(turf.point([lng, lat]), center, { units: 'meters' });
+  }
+
+  function edgeDistance(outer, lat, lng) {
+    if (typeof turf.pointToLineDistance !== 'function') return polygonDistance(outer, [], lat, lng);
+    const point = turf.point([lng, lat]);
+    let min = Infinity;
+    for (let i = 0; i < outer.length; i += 1) {
+      const start = outer[i];
+      const end = outer[(i + 1) % outer.length];
+      const line = turf.lineString([[start[1], start[0]], [end[1], end[0]]]);
+      const meters = turf.pointToLineDistance(point, line, { units: 'meters' });
+      if (meters < min) min = meters;
+    }
+    return min;
+  }
+
+  function polygonsFromElement(element) {
+    const tags = element.tags || {};
+    if (element.type === 'way') {
+      const outer = openRing(element.geometry);
+      return outer ? [{ outer, holes: [], tags, id: `way/${element.id}` }] : [];
+    }
+    if (element.type !== 'relation') return [];
+    const outers = [];
+    const inners = [];
+    (element.members || []).forEach((member) => {
+      if (member.type !== 'way') return;
+      const ring = openRing(member.geometry);
+      if (!ring) return;
+      if (member.role === 'inner') inners.push(ring);
+      else outers.push(ring);
+    });
+    return outers.map((outer, index) => ({
+      outer,
+      holes: outers.length === 1 ? inners : [],
+      tags,
+      id: `relation/${element.id}/${index}`
+    }));
+  }
+
+  function parseBuildings(data, lat, lng) {
+    const buildings = [];
+    (data.elements || []).forEach((element) => {
+      polygonsFromElement(element).forEach((polygon) => {
+        let sqft;
+        try {
+          sqft = areaSqFtFromRings(polygon.outer, polygon.holes);
+        } catch (err) {
+          return;
+        }
+        if (!(sqft > 40)) return;
+        let contains = false;
+        let distance = Infinity;
+        let edge = Infinity;
+        try {
+          contains = polygonContains(polygon.outer, polygon.holes, lat, lng);
+          edge = contains ? 0 : edgeDistance(polygon.outer, lat, lng);
+          distance = edge;
+        } catch (err) {
+          return;
+        }
+        if (!contains && edge > ESTIMATE_CONFIG.overpassRadiusM + 8) return;
+        buildings.push({
+          id: polygon.id,
+          label: buildingKind(polygon.tags),
+          outer: polygon.outer,
+          holes: polygon.holes,
+          sqft,
+          contains,
+          distance,
+          selected: false
+        });
+      });
+    });
+    return buildings;
+  }
+
+  function choosePrimary(buildings) {
+    const containing = buildings.filter((building) => building.contains).sort((a, b) => a.sqft - b.sqft);
+    if (containing.length) return containing[0];
+    const { min, max } = ESTIMATE_CONFIG.residentialSqFt;
+    const residential = buildings.filter((building) => building.sqft >= min && building.sqft <= max);
+    if (!residential.length) return null;
+    residential.sort((a, b) => a.distance - b.distance || b.sqft - a.sqft);
+    return residential[0];
+  }
+
+  function overpassQuery(lat, lng) {
+    const radius = ESTIMATE_CONFIG.overpassRadiusM;
+    return `[out:json][timeout:8];(way["building"](around:${radius},${lat},${lng});relation["building"](around:${radius},${lat},${lng}););out geom;`;
+  }
+
+  function osmXmlToOverpassElements(xmlText) {
+    const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+    if (doc.querySelector('parsererror')) throw new Error('osm xml');
+    const nodes = new Map();
+    doc.querySelectorAll('node').forEach((node) => {
+      nodes.set(node.getAttribute('id'), {
+        lat: Number(node.getAttribute('lat')),
+        lon: Number(node.getAttribute('lon'))
+      });
+    });
+    const ways = new Map();
+    doc.querySelectorAll('way').forEach((way) => {
+      const tags = {};
+      way.querySelectorAll('tag').forEach((tag) => { tags[tag.getAttribute('k')] = tag.getAttribute('v'); });
+      const geometry = [...way.querySelectorAll('nd')].map((nd) => nodes.get(nd.getAttribute('ref'))).filter(Boolean);
+      ways.set(way.getAttribute('id'), { tags, geometry });
+    });
+    const elements = [];
+    ways.forEach((way, id) => {
+      if (!way.tags.building || way.geometry.length < 4) return;
+      elements.push({ type: 'way', id, tags: way.tags, geometry: way.geometry });
+    });
+    doc.querySelectorAll('relation').forEach((relation) => {
+      const tags = {};
+      [...relation.children].forEach((child) => {
+        if (child.tagName === 'tag') tags[child.getAttribute('k')] = child.getAttribute('v');
+      });
+      if (!tags.building) return;
+      const members = [...relation.children].filter((child) => child.tagName === 'member').map((member) => {
+        const way = ways.get(member.getAttribute('ref'));
+        return { type: member.getAttribute('type'), role: member.getAttribute('role'), geometry: way ? way.geometry : null };
+      });
+      elements.push({ type: 'relation', id: relation.getAttribute('id'), tags, members });
+    });
+    return { elements };
+  }
+
+  async function fetchOsmMap(lat, lng) {
+    const radius = ESTIMATE_CONFIG.overpassRadiusM;
+    const dLat = radius / 111320;
+    const dLng = radius / (111320 * Math.cos(lat * Math.PI / 180));
+    const bbox = [lng - dLng, lat - dLat, lng + dLng, lat + dLat].map((n) => n.toFixed(6)).join(',');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ESTIMATE_CONFIG.overpassTimeoutMs);
+    try {
+      const res = await fetch(`https://api.openstreetmap.org/api/0.6/map?bbox=${bbox}`, {
+        signal: controller.signal,
+        headers: { Accept: 'application/xml' }
+      });
+      if (!res.ok) throw new Error('osm map');
+      return osmXmlToOverpassElements(await res.text());
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+    }
+  }
+
+  async function fetchOverpass(lat, lng) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ESTIMATE_CONFIG.overpassTimeoutMs);
+    const body = overpassQuery(lat, lng);
+    try {
+      return await Promise.any(ESTIMATE_CONFIG.overpassEndpoints.map(async (endpoint) => {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          body,
+          signal: controller.signal,
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8', Accept: 'application/json' }
+        });
+        if (!res.ok) throw new Error('overpass');
+        const data = await res.json();
+        if (!data || !Array.isArray(data.elements)) throw new Error('overpass');
+        return data;
+      }));
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+    }
+  }
+
+  function leafletRings(building) {
+    const outer = building.outer.map((point) => L.latLng(point[0], point[1]));
+    if (!building.holes || !building.holes.length) return outer;
+    return [outer, ...building.holes.map((hole) => hole.map((point) => L.latLng(point[0], point[1])))];
+  }
+
+  function setBuildingLatLngs(building) {
+    building.layer.setLatLngs(leafletRings(building));
+  }
+
+  function selectedSqFt() {
+    return state.buildings.filter((building) => building.selected).reduce((sum, building) => sum + building.sqft, 0);
+  }
+
+  function setOutlineMode(mode) {
+    state.mode = mode;
+    const confirm = $('#confirm-outline');
+    const manual = $('#trace-manual');
+    const finish = $('#finish-outline');
+    const undo = $('#undo-point');
+    const list = $('#building-list');
+    if (confirm) confirm.hidden = mode !== 'auto';
+    if (manual) manual.hidden = mode !== 'auto';
+    if (finish) finish.hidden = mode !== 'manual';
+    if (undo) undo.hidden = mode !== 'manual';
+    if (list) list.hidden = mode !== 'auto';
+  }
+
+  function clearBuildings() {
+    state.buildings = [];
+    if (buildingLayer) buildingLayer.clearLayers();
+    if (buildingHandles) buildingHandles.clearLayers();
+    const list = $('#building-list');
+    if (list) list.innerHTML = '';
+  }
+
+  function updateAutoStatus() {
+    const sqft = selectedSqFt();
+    const extra = Math.max(0, state.buildings.length - 1);
+    let message = 'We found your roof — adjust the corners if needed';
+    if (extra > 0) message += `. ${state.buildings.length} buildings nearby — tap one to add or remove it`;
+    message += `. Footprint: ${sqft > 0 ? sqftText(sqft) : 'select a building'}.`;
+    setStatus($('#outline-status'), message);
+    const help = $('#outline-help');
+    if (help) help.textContent = 'We found your roof — adjust the corners if needed.';
+    const title = $('#outline-title');
+    if (title) title.textContent = 'Check the roof outline';
+    const confirm = $('#confirm-outline');
+    if (confirm) confirm.disabled = !(sqft > 0);
+    if (state.source === 'auto') state.footprintSqFt = sqft > 0 ? sqft : null;
+  }
+
+  function renderBuildingList() {
+    const list = $('#building-list');
+    if (!list) return;
+    list.innerHTML = '';
+    state.buildings.forEach((building) => {
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('aria-pressed', String(building.selected));
+      button.textContent = `${building.label} · ${sqftText(building.sqft)} · ${building.selected ? 'Included' : 'Tap to include'}`;
+      button.addEventListener('click', () => toggleBuilding(building.id));
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+  }
+
+  function drawHandles() {
+    if (!buildingHandles) return;
+    buildingHandles.clearLayers();
+    state.buildings.forEach((building) => {
+      if (!building.selected) return;
+      building.outer.forEach((pair, index) => {
+        const icon = L.divIcon({
+          className: '',
+          html: `<span class="vertex-icon">${index + 1}</span>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        });
+        const marker = L.marker(pair, { icon, draggable: true, keyboard: true, title: `Corner ${index + 1}` }).addTo(buildingHandles);
+        marker.on('dragstart', () => { suppressBuildingToggle = true; });
+        marker.on('drag', (event) => {
+          const latlng = event.target.getLatLng();
+          building.outer[index] = [latlng.lat, latlng.lng];
+          setBuildingLatLngs(building);
+          try { building.sqft = areaSqFtFromRings(building.outer, building.holes); } catch (err) { /* keep last good area */ }
+          updateAutoStatus();
+        });
+        marker.on('dragend', () => {
+          renderBuildingList();
+          setTimeout(() => { suppressBuildingToggle = false; }, 350);
+        });
+      });
+    });
+  }
+
+  function refreshBuildingStyles() {
+    state.buildings.forEach((building) => {
+      building.layer.setStyle(building.selected
+        ? { color: '#8cd102', weight: 3, fillColor: '#8cd102', fillOpacity: 0.38 }
+        : { color: '#ffffff', weight: 2, dashArray: '5 5', fillColor: '#ffffff', fillOpacity: 0.12 });
+      if (building.selected) building.layer.bringToFront();
+    });
+    drawHandles();
+    renderBuildingList();
+    updateAutoStatus();
+  }
+
+  function toggleBuilding(id) {
+    if (suppressBuildingToggle || state.mode !== 'auto') return;
+    const building = state.buildings.find((item) => item.id === id);
+    if (!building) return;
+    building.selected = !building.selected;
+    refreshBuildingStyles();
+  }
+
+  function drawBuildings(buildings) {
+    clearBuildings();
+    if (polygonLayer && map) {
+      map.removeLayer(polygonLayer);
+      polygonLayer = null;
+    }
+    state.points = [];
+    state.closed = false;
+    state.buildings = buildings;
+    buildings.forEach((building) => {
+      const layer = L.polygon(leafletRings(building), {
+        color: '#ffffff',
+        weight: 2
+      }).addTo(buildingLayer);
+      building.layer = layer;
+      layer.on('click', (event) => {
+        if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+        toggleBuilding(building.id);
+      });
+    });
+    setOutlineMode('auto');
+    refreshBuildingStyles();
+    if (map) {
+      map.invalidateSize();
+      map.fitBounds(L.featureGroup(buildings.map((building) => building.layer)).getBounds(), { padding: [28, 28], maxZoom: 19 });
+    }
+  }
+
+  function startManualTrace(message) {
+    clearBuildings();
+    state.points = [];
+    state.closed = false;
+    state.footprintSqFt = null;
+    state.source = null;
+    setOutlineMode('manual');
+    const title = $('#outline-title');
+    const help = $('#outline-help');
+    if (title) title.textContent = 'Trace the roof outline';
+    if (help) help.textContent = 'Tap each corner of the roof. After three or more points, tap Finish outline. Or enter the home’s square footage.';
+    renderVertices();
+    setStatus($('#outline-status'), message);
+    const next = $('#to-pitch');
+    if (next) next.disabled = true;
+  }
+
+  function confirmAutoOutline() {
+    const sqft = selectedSqFt();
+    if (!(sqft > 0)) return null;
+    state.footprintSqFt = sqft;
+    state.source = 'auto';
+    state.livingSqFt = null;
+    state.stories = null;
+    const next = $('#to-pitch');
+    if (next) next.disabled = false;
+    setStatus($('#outline-status'), `We found your roof — adjust the corners if needed. Confirmed footprint: ${sqftText(sqft)}.`);
+    return sqft;
+  }
+
+  async function lookupBuildings(place, gen) {
+    setOutlineMode('loading');
+    const title = $('#outline-title');
+    const help = $('#outline-help');
+    if (title) title.textContent = 'Finding the roof';
+    if (help) help.textContent = 'Looking up the building outline from OpenStreetMap.';
+    setStatus($('#outline-status'), 'Looking up the building outline…');
+    const loadFrom = async (source, promise) => {
+      const data = await promise;
+      const buildings = parseBuildings(data, place.lat, place.lng);
+      if (!choosePrimary(buildings)) {
+        const error = new Error('no building');
+        throw error;
+      }
+      return { source, buildings };
+    };
+    let result;
+    try {
+      result = await Promise.any([
+        loadFrom('overpass', fetchOverpass(place.lat, place.lng)),
+        loadFrom('osm-map', fetchOsmMap(place.lat, place.lng))
+      ]);
+    } catch (err) {
+      if (gen !== lookupGen) return;
+      const errors = err && err.errors ? err.errors : [err];
+      const noneFound = errors.some((error) => error && error.message === 'no building');
+      startManualTrace(noneFound
+        ? 'We couldn’t find a building outline within 40 meters. Trace the roof, or enter the home’s square footage.'
+        : 'Building lookup didn’t finish. Trace the roof, or enter the home’s square footage.');
+      return;
+    }
+    if (gen !== lookupGen) return;
+    const primary = choosePrimary(result.buildings);
+    state.outlineSource = result.source;
+    result.buildings.forEach((building) => { building.selected = building.id === primary.id; });
+    drawBuildings(result.buildings);
+  }
+
+  function selectPlace(place, options) {
+    const skipLookup = options && options.skipLookup;
+    lookupGen += 1;
+    const gen = lookupGen;
     state.place = place;
     state.footprintSqFt = null;
     state.source = null;
     state.pitch = null;
     state.points = [];
     state.closed = false;
+    state.mode = skipLookup ? 'manual' : 'loading';
+    state.outlineSource = null;
     const next = $('#to-pitch');
     if (next) next.disabled = true;
     const input = $('#address-input');
@@ -307,6 +778,7 @@
     if (input) input.setAttribute('aria-expanded', 'false');
     setStatus($('#address-status'), place.label);
     showStep(1, true);
+    clearBuildings();
     if (polygonLayer && map) map.removeLayer(polygonLayer);
     polygonLayer = null;
     if (previewLine && map) map.removeLayer(previewLine);
@@ -324,17 +796,27 @@
       map.setView([place.lat, place.lng], 19);
       map.invalidateSize();
     }
-    renderVertices();
+    if (skipLookup) {
+      setOutlineMode('manual');
+      renderVertices();
+      return;
+    }
+    setOutlineMode('loading');
+    lookupBuildings(place, gen);
   }
 
   function tracePolygon(latlngs) {
+    lookupGen += 1;
     if (!state.place && latlngs[0]) {
-      selectPlace({ label: 'Selected location', lat: latlngs[0][0], lng: latlngs[0][1] });
+      selectPlace({ label: 'Selected location', lat: latlngs[0][0], lng: latlngs[0][1] }, { skipLookup: true });
     } else {
       showStep(1, true);
+      setOutlineMode('manual');
     }
+    clearBuildings();
     if (map) map.invalidateSize();
     clearOutline();
+    state.mode = 'manual';
     state.points = latlngs.map((pair) => L.latLng(pair[0], pair[1]));
     renderVertices();
     const sqft = closeOutline();
@@ -461,6 +943,9 @@
     ];
     if (state.source === 'fallback') {
       lines.push(`Measurement: Estimated footprint from ${Number(state.livingSqFt).toLocaleString('en-US')} sq ft living area, ${state.stories} ${Number(state.stories) === 1 ? 'story' : 'stories'}`);
+    } else if (state.source === 'auto') {
+      const count = state.buildings.filter((building) => building.selected).length;
+      lines.push(`Measurement: OpenStreetMap building outline${count > 1 ? ` (${count} buildings)` : ''}, checked on the satellite photo`);
     } else {
       lines.push('Measurement: Traced roof outline on satellite imagery');
     }
@@ -580,11 +1065,13 @@
     $('#undo-point').addEventListener('click', undoPoint);
     $('#finish-outline').addEventListener('click', closeOutline);
     $('#clear-outline').addEventListener('click', () => {
-      clearOutline();
-      state.footprintSqFt = null;
-      state.source = null;
-      $('#to-pitch').disabled = true;
-      setStatus($('#outline-status'), 'Outline cleared.');
+      lookupGen += 1;
+      startManualTrace('Outline cleared. Tap each corner of the roof, or enter the home’s square footage.');
+    });
+    $('#confirm-outline').addEventListener('click', confirmAutoOutline);
+    $('#trace-manual').addEventListener('click', () => {
+      lookupGen += 1;
+      startManualTrace('Trace the roof corners, or enter the home’s square footage.');
     });
     $('#cant-trace').addEventListener('click', () => {
       const form = $('#fallback-form');
@@ -642,7 +1129,16 @@
       pitch: state.pitch,
       place: state.place,
       step: state.step,
-      points: state.points.length
+      points: state.points.length,
+      mode: state.mode,
+      outlineSource: state.outlineSource,
+      buildings: state.buildings.map((building) => ({
+        id: building.id,
+        label: building.label,
+        sqft: building.sqft,
+        selected: building.selected,
+        contains: building.contains
+      }))
     })
   };
 

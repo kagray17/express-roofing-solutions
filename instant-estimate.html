@@ -110,12 +110,15 @@
       </div>
 
       <div class="est-card" data-step-panel="1" hidden>
-        <h2>Trace the roof outline</h2>
-        <p class="est-lead" id="outline-help">Tap each corner of the roof. After three or more points, tap Finish outline. The area is the footprint, before pitch and waste.</p>
+        <h2 id="outline-title">Trace the roof outline</h2>
+        <p class="est-lead" id="outline-help">We’ll look up the building outline. If we can’t find it, tap each corner of the roof.</p>
         <div id="est-map" class="est-map" role="application" aria-label="Satellite map. Tap to place roof corners."></div>
-        <p class="est-attrib">Satellite imagery © Esri. Zoom in until the roof fills the view, then trace the outer edge.</p>
+        <p class="est-attrib">Satellite imagery © Esri. Building outlines © OpenStreetMap contributors.</p>
         <p class="est-status" id="outline-status" role="status">Tap each corner of the roof. Use Finish outline after at least three points.</p>
+        <ul class="building-list" id="building-list" hidden></ul>
         <div class="est-actions">
+          <button type="button" class="btn btn-primary" id="confirm-outline" hidden>Confirm</button>
+          <button type="button" class="btn btn-line-dark" id="trace-manual" hidden>Trace it myself</button>
           <button type="button" class="btn btn-primary" id="finish-outline" disabled>Finish outline</button>
           <button type="button" class="btn btn-line-dark" id="undo-point" disabled>Undo point</button>
           <button type="button" class="btn btn-line-dark" id="clear-outline">Clear</button>
