@@ -16,29 +16,8 @@
       { id: 'average', label: 'Average (walkable)', hint: 'Typical residential pitch' },
       { id: 'steep', label: 'Steep', hint: 'Harder to walk, more roof surface' }
     ],
-    materials: {
-      asphalt: {
-        id: 'asphalt',
-        label: 'GAF architectural asphalt shingles',
-        hint: 'Installed price range',
-        priced: true,
-        pricePerSquare: { low: 425, high: 500 }
-      },
-      metal: {
-        id: 'metal',
-        label: 'Metal roofing',
-        hint: 'Custom quote — we\'ll call you',
-        priced: false,
-        quote: 'Custom quote — we\'ll call you'
-      },
-      gutters: {
-        id: 'gutters',
-        label: 'Seamless gutters',
-        hint: 'Custom quote — we\'ll call you',
-        priced: false,
-        quote: 'Custom quote — we\'ll call you'
-      }
-    },
+    materialLabel: 'GAF architectural asphalt shingles',
+    pricePerSquare: { low: 425, high: 500 },
     disclaimer: 'Ballpark estimate based on satellite measurement; final price confirmed after a free on-site inspection.',
     phoneDisplay: '(765) 490-2914',
     phoneTel: '+17654902914',
@@ -46,8 +25,8 @@
     defaultCenter: { lat: 40.4191, lng: -86.8919, zoom: 12 }
   };
 
-  const STEPS = ['address', 'outline', 'pitch', 'material', 'result'];
-  const STEP_LABELS = ['Address', 'Roof', 'Pitch', 'Material', 'Result'];
+  const STEPS = ['address', 'outline', 'pitch', 'result'];
+  const STEP_LABELS = ['Address', 'Roof', 'Pitch', 'Result'];
 
   const state = {
     step: 0,
@@ -59,7 +38,6 @@
     livingSqFt: null,
     stories: null,
     pitch: null,
-    materialId: null,
     suggestIndex: -1,
     suggestions: []
   };
@@ -106,29 +84,15 @@
     return meters * ESTIMATE_CONFIG.sqFtPerSqMeter;
   }
 
-  function computeEstimate({ footprintSqFt, pitch, materialId }) {
-    const material = ESTIMATE_CONFIG.materials[materialId];
+  function computeEstimate({ footprintSqFt, pitch }) {
     const pitchMult = ESTIMATE_CONFIG.pitchMultipliers[pitch];
-    if (!material || !(pitchMult > 0) || !(footprintSqFt > 0)) return null;
+    if (!(pitchMult > 0) || !(footprintSqFt > 0)) return null;
     const adjustedSqFt = footprintSqFt * pitchMult * ESTIMATE_CONFIG.wasteFactor;
     const squares = adjustedSqFt / ESTIMATE_CONFIG.squareSqFt;
-    if (!material.priced) {
-      return {
-        priced: false,
-        quote: material.quote,
-        squares,
-        adjustedSqFt,
-        footprintSqFt,
-        pitch,
-        pitchMult,
-        material
-      };
-    }
-    let low = roundTo(squares * material.pricePerSquare.low, ESTIMATE_CONFIG.roundToDollars);
-    let high = roundTo(squares * material.pricePerSquare.high, ESTIMATE_CONFIG.roundToDollars);
+    let low = roundTo(squares * ESTIMATE_CONFIG.pricePerSquare.low, ESTIMATE_CONFIG.roundToDollars);
+    let high = roundTo(squares * ESTIMATE_CONFIG.pricePerSquare.high, ESTIMATE_CONFIG.roundToDollars);
     if (high < low) high = low;
     return {
-      priced: true,
       low,
       high,
       squares,
@@ -136,7 +100,7 @@
       footprintSqFt,
       pitch,
       pitchMult,
-      material
+      materialLabel: ESTIMATE_CONFIG.materialLabel
     };
   }
 
@@ -158,7 +122,7 @@
     });
     document.querySelectorAll('[data-step-jump]').forEach((btn) => {
       const n = Number(btn.getAttribute('data-step-jump'));
-      const allowed = n === 0 || (n === 1 && state.place) || (n === 2 && state.footprintSqFt) || (n === 3 && state.pitch) || (n === 4 && state.materialId);
+      const allowed = n === 0 || (n === 1 && state.place) || (n === 2 && state.footprintSqFt) || (n === 3 && state.pitch);
       btn.disabled = n > index && !allowed;
       if (n === index) btn.setAttribute('aria-current', 'step');
       else btn.removeAttribute('aria-current');
@@ -329,7 +293,6 @@
     state.footprintSqFt = null;
     state.source = null;
     state.pitch = null;
-    state.materialId = null;
     state.points = [];
     state.closed = false;
     const next = $('#to-pitch');
@@ -505,9 +468,8 @@
     lines.push(`Pitch: ${pitchLabel(estimate.pitch)} × ${estimate.pitchMult.toFixed(2)}`);
     lines.push(`Waste: ${Math.round((ESTIMATE_CONFIG.wasteFactor - 1) * 100)}%`);
     lines.push(`Roof area: ${sqftText(estimate.adjustedSqFt)} (${estimate.squares.toFixed(1)} squares)`);
-    lines.push(`Material: ${estimate.material.label}`);
-    if (estimate.priced) lines.push(`Installed estimate: ${money(estimate.low)} – ${money(estimate.high)}`);
-    else lines.push(estimate.quote);
+    lines.push(`Material: ${estimate.materialLabel}`);
+    lines.push(`Installed estimate: ${money(estimate.low)} – ${money(estimate.high)}`);
     lines.push(ESTIMATE_CONFIG.disclaimer);
     lines.push(`Call ${ESTIMATE_CONFIG.phoneDisplay}`);
     return lines.join('\n');
@@ -516,8 +478,7 @@
   function renderResult() {
     const estimate = computeEstimate({
       footprintSqFt: state.footprintSqFt,
-      pitch: state.pitch,
-      materialId: state.materialId
+      pitch: state.pitch
     });
     if (!estimate) return;
     const price = $('#est-price');
@@ -526,27 +487,18 @@
     const disclaimer = $('#est-disclaimer');
     lastSummary = summaryText(estimate);
     disclaimer.textContent = ESTIMATE_CONFIG.disclaimer;
-    if (estimate.priced) {
-      price.textContent = `${money(estimate.low)} – ${money(estimate.high)}`;
-      price.dataset.low = String(estimate.low);
-      price.dataset.high = String(estimate.high);
-      price.dataset.priced = 'true';
-    } else {
-      price.textContent = estimate.quote;
-      price.dataset.low = '';
-      price.dataset.high = '';
-      price.dataset.priced = 'false';
-    }
+    price.textContent = `${money(estimate.low)} – ${money(estimate.high)}`;
+    price.dataset.low = String(estimate.low);
+    price.dataset.high = String(estimate.high);
     price.dataset.sqft = String(estimate.footprintSqFt);
     price.dataset.squares = String(estimate.squares);
-    detail.textContent = `${estimate.squares.toFixed(1)} squares · ${sqftText(estimate.adjustedSqFt)} including pitch and waste · ${estimate.material.label}`;
+    detail.textContent = `${estimate.squares.toFixed(1)} squares · ${sqftText(estimate.adjustedSqFt)} including pitch and waste · ${estimate.materialLabel}`;
     summary.textContent = lastSummary;
-    showStep(4);
+    showStep(3, true);
   }
 
   function buildChoices() {
     const pitchMount = $('#pitch-mount');
-    const materialMount = $('#material-mount');
     const pitchSet = document.createElement('fieldset');
     pitchSet.className = 'est-choices';
     pitchSet.innerHTML = '<legend class="sr-only">How steep is the roof?</legend>';
@@ -561,26 +513,6 @@
     pitchSet.addEventListener('change', (event) => {
       if (event.target.name !== 'pitch') return;
       state.pitch = event.target.value;
-      const next = $('#to-material');
-      if (next) next.disabled = false;
-    });
-
-    const matSet = document.createElement('fieldset');
-    matSet.className = 'est-choices';
-    matSet.innerHTML = '<legend class="sr-only">What should we price?</legend>';
-    Object.values(ESTIMATE_CONFIG.materials).forEach((material) => {
-      const label = document.createElement('label');
-      label.className = 'choice';
-      const hint = material.priced
-        ? `$${material.pricePerSquare.low}–$${material.pricePerSquare.high} per square installed`
-        : material.quote;
-      label.innerHTML = `<input type="radio" name="material" value="${material.id}"><span><strong>${material.label}</strong><small>${hint}</small></span>`;
-      matSet.appendChild(label);
-    });
-    materialMount.appendChild(matSet);
-    matSet.addEventListener('change', (event) => {
-      if (event.target.name !== 'material') return;
-      state.materialId = event.target.value;
       const next = $('#to-result');
       if (next) next.disabled = false;
     });
@@ -667,12 +599,10 @@
       if (state.footprintSqFt) showStep(2, true);
     });
     $('#back-outline').addEventListener('click', () => showStep(1, true));
-    $('#to-material').addEventListener('click', () => {
-      if (state.pitch) showStep(3, true);
+    $('#to-result').addEventListener('click', () => {
+      if (state.pitch) renderResult();
     });
     $('#back-pitch').addEventListener('click', () => showStep(2, true));
-    $('#to-result').addEventListener('click', renderResult);
-    $('#back-material').addEventListener('click', () => showStep(3, true));
     $('#copy-estimate').addEventListener('click', copySummary);
     $('#change-address').addEventListener('click', () => showStep(0, true));
   }
@@ -710,7 +640,6 @@
       footprintSqFt: state.footprintSqFt,
       source: state.source,
       pitch: state.pitch,
-      materialId: state.materialId,
       place: state.place,
       step: state.step,
       points: state.points.length
