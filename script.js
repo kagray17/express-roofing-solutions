@@ -74,13 +74,90 @@
     reveals.forEach((el) => el.classList.add('is-visible'));
   }
 
-  // Before / after slider
+  // Before / after slider and job switcher
   const ba = d.getElementById('ba');
   const range = d.getElementById('ba-range');
+  const jobs = [
+    {
+      native: false,
+      before: {
+        alt: 'Before: worn asphalt shingle roof',
+        w: 1440, h: 1920,
+        webp: 'assets/photos/jobs/before-1-800.webp 800w, assets/photos/jobs/before-1.webp 1440w',
+        jpg: 'assets/photos/jobs/before-1.jpg',
+        sizes: '(max-width:1100px) 100vw, 60vw'
+      },
+      after: {
+        alt: 'After: new roof with new soffit and fascia',
+        w: 1920, h: 1440,
+        webp: 'assets/photos/jobs/after-1-800.webp 800w, assets/photos/jobs/after-1.webp 1920w',
+        jpg: 'assets/photos/jobs/after-1.jpg',
+        sizes: '(max-width:1100px) 100vw, 60vw'
+      }
+    },
+    {
+      native: false,
+      before: {
+        alt: 'Before: worn roof edge and fascia',
+        w: 1440, h: 1920,
+        webp: 'assets/photos/jobs/before-2-800.webp 800w, assets/photos/jobs/before-2.webp 1440w',
+        jpg: 'assets/photos/jobs/before-2.jpg',
+        sizes: '(max-width:1100px) 100vw, 60vw'
+      },
+      after: {
+        alt: 'After: new roof with new soffit and fascia',
+        w: 1920, h: 1440,
+        webp: 'assets/photos/jobs/after-2-800.webp 800w, assets/photos/jobs/after-2.webp 1920w',
+        jpg: 'assets/photos/jobs/after-2.jpg',
+        sizes: '(max-width:1100px) 100vw, 60vw'
+      }
+    },
+    {
+      native: true,
+      before: {
+        alt: 'Before: old commercial flat-roof membrane during tear-off, Lafayette, IN',
+        w: 480, h: 640,
+        webp: 'assets/photos/jobs/before-3.webp 480w',
+        jpg: 'assets/photos/jobs/before-3.jpg',
+        sizes: '480px'
+      },
+      after: {
+        alt: 'After: new white membrane on a commercial flat roof, Lafayette, IN',
+        w: 640, h: 480,
+        webp: 'assets/photos/jobs/after-3.webp 640w',
+        jpg: 'assets/photos/jobs/after-3.jpg',
+        sizes: '480px'
+      }
+    }
+  ];
+  const setPic = (id, photo) => {
+    const picture = d.getElementById(id);
+    if (!picture) return;
+    const source = picture.querySelector('source');
+    const img = picture.querySelector('img');
+    source.srcset = photo.webp;
+    source.sizes = photo.sizes;
+    img.src = photo.jpg;
+    img.alt = photo.alt;
+    img.width = photo.w;
+    img.height = photo.h;
+  };
   if (ba && range) {
     const set = () => ba.style.setProperty('--pos', range.value + '%');
     range.addEventListener('input', set);
     set();
+    const tabs = [...d.querySelectorAll('.ba-switch [role="tab"]')];
+    const show = (index) => {
+      const job = jobs[index];
+      if (!job) return;
+      ba.classList.toggle('is-native', job.native);
+      setPic('ba-before-pic', job.before);
+      setPic('ba-after-pic', job.after);
+      tabs.forEach((tab, i) => tab.setAttribute('aria-selected', String(i === index)));
+      range.value = '50';
+      set();
+    };
+    tabs.forEach((tab, index) => tab.addEventListener('click', () => show(index)));
   }
 
   // Service-area chips <-> map dots

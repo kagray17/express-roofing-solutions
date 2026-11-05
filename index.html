@@ -349,35 +349,63 @@
       <div class="ba-wrap reveal">
         <div class="ba" id="ba" style="--pos:50%">
           <div class="ba-after">
-            <picture>
-              <source type="image/webp" srcset="assets/photos/roof-aerial-800.webp 800w, assets/photos/roof-aerial-1280.webp 1280w, assets/photos/roof-aerial-2048.webp 2048w" sizes="(max-width:1100px) 100vw, 60vw">
-              <img src="assets/photos/roof-aerial-1280.jpg" alt="After: completed asphalt shingle roof replacement by Express Roofing Solutions, aerial view" width="1280" height="720" loading="lazy" decoding="async">
+            <picture id="ba-after-pic">
+              <source type="image/webp" srcset="assets/photos/jobs/after-1-800.webp 800w, assets/photos/jobs/after-1.webp 1920w" sizes="(max-width:1100px) 100vw, 60vw">
+              <img src="assets/photos/jobs/after-1.jpg" alt="After: new roof with new soffit and fascia" width="1920" height="1440" loading="lazy" decoding="async">
             </picture>
           </div>
-          <div class="ba-before" aria-hidden="true">
-            <div class="ba-slot">
-              <svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg>
-              <strong>Before photo slot</strong>
-              <span>Placeholder — the original “before” shot of this roof goes here. Not a real photo yet.</span>
-            </div>
+          <div class="ba-before">
+            <picture id="ba-before-pic">
+              <source type="image/webp" srcset="assets/photos/jobs/before-1-800.webp 800w, assets/photos/jobs/before-1.webp 1440w" sizes="(max-width:1100px) 100vw, 60vw">
+              <img src="assets/photos/jobs/before-1.jpg" alt="Before: worn asphalt shingle roof" width="1440" height="1920" loading="lazy" decoding="async">
+            </picture>
           </div>
-          <span class="ba-label ba-label-before">Before · photo needed</span>
-          <span class="ba-label ba-label-after">After · real job</span>
+          <span class="ba-label ba-label-before">Before</span>
+          <span class="ba-label ba-label-after">After</span>
           <div class="ba-divider" aria-hidden="true"><span class="ba-handle"><svg class="icon" aria-hidden="true"><use href="#i-lr"/></svg></span></div>
           <label class="sr-only" for="ba-range">Drag to compare before and after</label>
           <input class="ba-range" id="ba-range" type="range" min="0" max="100" value="50" step="1">
         </div>
-        <p class="ba-caption"><svg class="icon" aria-hidden="true"><use href="#i-lr"/></svg>Drag the handle to compare. Right side is a real completed ERS roof.</p>
+        <div class="ba-switch" role="tablist" aria-label="Choose a before and after job">
+          <button type="button" role="tab" id="ba-tab-0" aria-selected="true" aria-controls="ba">Residential re-roof</button>
+          <button type="button" role="tab" id="ba-tab-1" aria-selected="false" aria-controls="ba">Soffit and fascia</button>
+          <button type="button" role="tab" id="ba-tab-2" aria-selected="false" aria-controls="ba">Commercial flat roof</button>
+        </div>
+        <p class="ba-caption"><svg class="icon" aria-hidden="true"><use href="#i-lr"/></svg>Drag the handle to compare before and after.</p>
       </div>
       <div class="work-copy">
         <p class="section-eyebrow reveal">Our Work</p>
         <h2 class="section-title reveal" id="work-title">Real roofs. No stock photos.</h2>
-        <p class="section-sub reveal">Every image here is from an actual Express Roofing job. Slots marked “photo needed” are waiting on more shots from the crew — we’d rather show a blank than a fake.</p>
-        <div class="slots reveal">
-          <div class="slot"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><div><strong>Metal roof install</strong>Photo needed</div></div>
-          <div class="slot"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><div><strong>Seamless gutters</strong>Photo needed</div></div>
-          <div class="slot"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><div><strong>Storm repair</strong>Photo needed</div></div>
-          <div class="slot"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><div><strong>Crew on site</strong>Photo needed</div></div>
+        <p class="section-sub reveal">Residential re-roofs with new shingles, soffit, and fascia, and a commercial flat-roof replacement in Lafayette, IN.</p>
+        <div class="job-photos reveal">
+          <figure>
+            <picture>
+              <source type="image/webp" srcset="assets/photos/jobs/gallery-2.webp" sizes="280px">
+              <img src="assets/photos/jobs/gallery-2.jpg" alt="Crew installing a commercial flat roof in Lafayette, IN" width="640" height="480" loading="lazy" decoding="async">
+            </picture>
+            <figcaption>Crew on a commercial flat roof</figcaption>
+          </figure>
+          <figure>
+            <picture>
+              <source type="image/webp" srcset="assets/photos/jobs/gallery-3.webp" sizes="280px">
+              <img src="assets/photos/jobs/gallery-3.jpg" alt="Commercial flat roof installation in progress, Lafayette, IN" width="640" height="480" loading="lazy" decoding="async">
+            </picture>
+            <figcaption>Membrane going down</figcaption>
+          </figure>
+          <figure>
+            <picture>
+              <source type="image/webp" srcset="assets/photos/jobs/gallery-1.webp" sizes="280px">
+              <img src="assets/photos/jobs/gallery-1.jpg" alt="Commercial flat roof nearing completion, Lafayette, IN" width="640" height="480" loading="lazy" decoding="async">
+            </picture>
+            <figcaption>Nearing completion, Lafayette</figcaption>
+          </figure>
+          <figure>
+            <picture>
+              <source type="image/webp" srcset="assets/photos/jobs/after-3.webp" sizes="280px">
+              <img src="assets/photos/jobs/after-3.jpg" alt="After: new white membrane on a commercial flat roof, Lafayette, IN" width="640" height="480" loading="lazy" decoding="async">
+            </picture>
+            <figcaption>New white membrane</figcaption>
+          </figure>
         </div>
       </div>
     </div>
