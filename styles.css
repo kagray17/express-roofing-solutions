@@ -173,11 +173,12 @@ section{position:relative}
 .tile-metal{background:linear-gradient(145deg,var(--navy-700),var(--navy-900))}
 .tile-gutter{background:linear-gradient(160deg,#1d4466,var(--navy-800))}
 .tile-storm{background:linear-gradient(160deg,#20294a,var(--navy-900))}
-.tile-tool{grid-column:span 4;flex-direction:row;align-items:center;justify-content:space-between;gap:28px;background:linear-gradient(100deg,var(--lime) 0%,var(--lime-300) 100%);color:var(--navy-900);min-height:0;padding:30px 36px}
+.tile-tool{grid-column:span 4;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:28px;background:linear-gradient(100deg,var(--lime) 0%,var(--lime-300) 100%);color:var(--navy-900);min-height:0;padding:30px 36px}
 .tile-tool h3{margin:0;font-size:clamp(1.3rem,2.2vw,1.8rem)}
 .tile-tool p{color:#25400a;margin-top:6px}
 .tile-tool .tile-icon{background:rgba(10,26,41,.1);border-color:rgba(10,26,41,.18);color:var(--navy-900)}
 .tile-tool .tool-left{display:flex;align-items:center;gap:22px}
+.tile-tool .tool-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:none}
 .tile-tool .btn-dark .icon{width:1em;height:1em}
 
 /* Before/After */
@@ -340,7 +341,8 @@ section{position:relative}
 .contact-details a,.contact-details span{color:#fff;font-weight:600;text-decoration:none;word-break:break-word}
 .contact-details a:hover{color:var(--lime-300)}
 .instant-estimate{margin-top:20px;padding:20px 22px;border-radius:16px;border:1px dashed rgba(140,209,2,.4);color:var(--on-dark-muted);font-size:.95rem}
-.instant-estimate a{display:inline-flex;align-items:center;gap:6px;margin-top:10px;color:var(--lime);font-weight:700;text-decoration:none}
+.instant-estimate .instant-actions{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:10px}
+.instant-estimate a{display:inline-flex;align-items:center;gap:6px;color:var(--lime);font-weight:700;text-decoration:none}
 .instant-estimate a:hover{color:var(--lime-300)}
 .form-card{background:#fff;border-radius:28px;padding:10px;box-shadow:0 40px 90px -30px rgba(0,0,0,.6);position:relative}
 .form-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px;color:var(--text)}
@@ -457,7 +459,8 @@ section{position:relative}
   .tile-feature{min-height:420px}
   .tile-tool{flex-direction:column;align-items:flex-start;min-height:0}
   .tile-tool .tool-left{flex-direction:column;align-items:flex-start;gap:16px}
-  .tile-tool .btn{width:100%}
+  .tile-tool .tool-actions{width:100%;flex-direction:column;align-items:stretch}
+  .tile-tool .tool-actions .btn{width:100%}
   .why-grid{grid-template-columns:1fr}
   .slots{gap:10px}
   .slot{padding:12px;font-size:.8rem;gap:10px}
