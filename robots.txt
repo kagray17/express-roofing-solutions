@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://expressroofingsolutions.com/sitemap.xml
