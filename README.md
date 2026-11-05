@@ -9,6 +9,13 @@ Hosted on Netlify from the `main` branch. This redesign lives on `redesign-v2` u
 - Light bg: `#f5f7f6`
 - Fonts: Sora (headings) + Inter (body)
 
+## v3 design system
+- Shared SVG icon sprite (inline `<symbol>`s) at top of every page — no emoji, no icon font
+- Hero: real ERS aerial photo full-bleed (responsive WebP 800/1280/2048), parallax, animated lime roofline SVG
+- Home sections: marquee, animated counters, bento services, before/after slider (before = labeled placeholder), sticky process timeline, SVG service-area map, FAQ (+FAQPage schema), final CTA, contact
+- All motion disabled under `prefers-reduced-motion`
+- GHL iframe must NOT use `loading="lazy"` (form_embed.js never loads it)
+
 ## Lead form
 GoHighLevel / LeadConnector embed form ID `tL4KaNTXYQRjmjstzhF3` must stay on the homepage contact section.
 
