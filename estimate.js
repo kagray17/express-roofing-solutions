@@ -18,7 +18,8 @@
     ],
     materialLabel: 'GAF architectural asphalt shingles',
     pricePerSquare: { low: 425, high: 500 },
-    overpassRadiusM: 40,
+    buildingFetchRadiusM: 80,
+    buildingSelectRadiusM: 30,
     overpassTimeoutMs: 8000,
     residentialSqFt: { min: 600, max: 6000 },
     overpassEndpoints: [
@@ -30,7 +31,10 @@
     phoneDisplay: '(765) 490-2914',
     phoneTel: '+17654902914',
     nominatimEmail: 'info@expressroofingsolutions.com',
-    defaultCenter: { lat: 40.4191, lng: -86.8919, zoom: 12 }
+    nominatimDebounceMs: 400,
+    nominatimMinIntervalMs: 1000,
+    addressViewbox: '-87.05,40.55,-86.72,40.32',
+    defaultCenter: { lat: 40.4191, lng: -86.8919, zoom: 19 }
   };
 
   const STEPS = ['address', 'outline', 'pitch', 'result'];
@@ -48,6 +52,7 @@
     pitch: null,
     mode: 'manual',
     buildings: [],
+    candidates: [],
     suggestIndex: -1,
     suggestions: []
   };
@@ -62,6 +67,7 @@
   let buildingHandles;
   let searchTimer;
   let searchAbort;
+  let lastNominatimAt = 0;
   let lookupGen = 0;
   let suppressBuildingToggle = false;
   let lastSummary = '';
@@ -196,7 +202,12 @@
     buildingLayer = L.layerGroup().addTo(map);
     buildingHandles = L.layerGroup().addTo(map);
     map.on('click', (event) => {
-      if (state.mode !== 'manual' || state.step !== 1 || state.closed) return;
+      if (state.mode === 'auto' && state.step === 1) {
+        const hit = buildingAt(event.latlng.lat, event.latlng.lng);
+        if (hit && (!state.buildings[0] || hit.id !== state.buildings[0].id)) presentBuilding(hit);
+        return;
+      }
+      if (state.mode !== 'manual' || state.step !== 1 || state.closed || polygonLayer) return;
       addPoint(event.latlng);
     });
     return map;
@@ -234,6 +245,7 @@
   }
 
   function addPoint(latlng) {
+    if (state.closed || polygonLayer) return;
     state.closed = false;
     state.source = state.source === 'fallback' ? null : state.source;
     if (state.source !== 'traced') {
@@ -430,7 +442,7 @@
         } catch (err) {
           return;
         }
-        if (!contains && edge > ESTIMATE_CONFIG.overpassRadiusM + 8) return;
+        if (!contains && edge > ESTIMATE_CONFIG.buildingFetchRadiusM + 8) return;
         buildings.push({
           id: polygon.id,
           label: buildingKind(polygon.tags),
@@ -449,15 +461,14 @@
   function choosePrimary(buildings) {
     const containing = buildings.filter((building) => building.contains).sort((a, b) => a.sqft - b.sqft);
     if (containing.length) return containing[0];
-    const { min, max } = ESTIMATE_CONFIG.residentialSqFt;
-    const residential = buildings.filter((building) => building.sqft >= min && building.sqft <= max);
-    if (!residential.length) return null;
-    residential.sort((a, b) => a.distance - b.distance || b.sqft - a.sqft);
-    return residential[0];
+    const near = buildings.filter((building) => building.distance <= ESTIMATE_CONFIG.buildingSelectRadiusM);
+    if (!near.length) return null;
+    near.sort((a, b) => a.distance - b.distance);
+    return near[0];
   }
 
   function overpassQuery(lat, lng) {
-    const radius = ESTIMATE_CONFIG.overpassRadiusM;
+    const radius = ESTIMATE_CONFIG.buildingFetchRadiusM;
     return `[out:json][timeout:8];(way["building"](around:${radius},${lat},${lng});relation["building"](around:${radius},${lat},${lng}););out geom;`;
   }
 
@@ -499,7 +510,7 @@
   }
 
   async function fetchOsmMap(lat, lng) {
-    const radius = ESTIMATE_CONFIG.overpassRadiusM;
+    const radius = ESTIMATE_CONFIG.buildingFetchRadiusM;
     const dLat = radius / 111320;
     const dLng = radius / (111320 * Math.cos(lat * Math.PI / 180));
     const bbox = [lng - dLng, lat - dLat, lng + dLng, lat + dLat].map((n) => n.toFixed(6)).join(',');
@@ -566,26 +577,27 @@
     if (manual) manual.hidden = mode !== 'auto';
     if (finish) finish.hidden = mode !== 'manual';
     if (undo) undo.hidden = mode !== 'manual';
-    if (list) list.hidden = mode !== 'auto';
+    if (list) list.hidden = true;
   }
 
   function clearBuildings() {
     state.buildings = [];
+    state.candidates = [];
     if (buildingLayer) buildingLayer.clearLayers();
     if (buildingHandles) buildingHandles.clearLayers();
     const list = $('#building-list');
-    if (list) list.innerHTML = '';
+    if (list) {
+      list.innerHTML = '';
+      list.hidden = true;
+    }
   }
 
   function updateAutoStatus() {
     const sqft = selectedSqFt();
-    const extra = Math.max(0, state.buildings.length - 1);
-    let message = 'We found your roof — adjust the corners if needed';
-    if (extra > 0) message += `. ${state.buildings.length} buildings nearby — tap one to add or remove it`;
-    message += `. Footprint: ${sqft > 0 ? sqftText(sqft) : 'select a building'}.`;
+    const message = `We found your roof — adjust the corners if needed. Footprint: ${sqft > 0 ? sqftText(sqft) : 'select the house'}.`;
     setStatus($('#outline-status'), message);
     const help = $('#outline-help');
-    if (help) help.textContent = 'We found your roof — adjust the corners if needed.';
+    if (help) help.textContent = 'We found your roof — adjust the corners if needed. Tap a different house on the map to switch to it.';
     const title = $('#outline-title');
     if (title) title.textContent = 'Check the roof outline';
     const confirm = $('#confirm-outline');
@@ -597,16 +609,7 @@
     const list = $('#building-list');
     if (!list) return;
     list.innerHTML = '';
-    state.buildings.forEach((building) => {
-      const item = document.createElement('li');
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.setAttribute('aria-pressed', String(building.selected));
-      button.textContent = `${building.label} · ${sqftText(building.sqft)} · ${building.selected ? 'Included' : 'Tap to include'}`;
-      button.addEventListener('click', () => toggleBuilding(building.id));
-      item.appendChild(button);
-      list.appendChild(item);
-    });
+    list.hidden = true;
   }
 
   function drawHandles() {
@@ -650,39 +653,46 @@
     updateAutoStatus();
   }
 
-  function toggleBuilding(id) {
-    if (suppressBuildingToggle || state.mode !== 'auto') return;
-    const building = state.buildings.find((item) => item.id === id);
-    if (!building) return;
-    building.selected = !building.selected;
-    refreshBuildingStyles();
+  function buildingAt(lat, lng) {
+    const hits = (state.candidates || []).filter((building) => {
+      try {
+        return polygonContains(building.outer, building.holes, lat, lng);
+      } catch (err) {
+        return false;
+      }
+    });
+    if (!hits.length) return null;
+    hits.sort((a, b) => a.sqft - b.sqft);
+    return hits[0];
   }
 
-  function drawBuildings(buildings) {
-    clearBuildings();
+  function presentBuilding(building, candidates) {
     if (polygonLayer && map) {
       map.removeLayer(polygonLayer);
       polygonLayer = null;
     }
+    if (buildingLayer) buildingLayer.clearLayers();
+    if (buildingHandles) buildingHandles.clearLayers();
     state.points = [];
     state.closed = false;
-    state.buildings = buildings;
-    buildings.forEach((building) => {
-      const layer = L.polygon(leafletRings(building), {
-        color: '#ffffff',
-        weight: 2
-      }).addTo(buildingLayer);
-      building.layer = layer;
-      layer.on('click', (event) => {
-        if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
-        toggleBuilding(building.id);
-      });
+    if (candidates) state.candidates = candidates;
+    const chosen = Object.assign({}, building, { selected: true });
+    state.buildings = [chosen];
+    const layer = L.polygon(leafletRings(chosen), {
+      color: '#8cd102',
+      weight: 3,
+      fillColor: '#8cd102',
+      fillOpacity: 0.38
+    }).addTo(buildingLayer);
+    chosen.layer = layer;
+    layer.on('click', (event) => {
+      if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
     });
     setOutlineMode('auto');
     refreshBuildingStyles();
-    if (map) {
+    if (map && layer.getBounds().isValid()) {
       map.invalidateSize();
-      map.fitBounds(L.featureGroup(buildings.map((building) => building.layer)).getBounds(), { padding: [28, 28], maxZoom: 19 });
+      map.flyToBounds(layer.getBounds(), { padding: [72, 72], maxZoom: 19, duration: 0.7 });
     }
   }
 
@@ -743,15 +753,14 @@
       const errors = err && err.errors ? err.errors : [err];
       const noneFound = errors.some((error) => error && error.message === 'no building');
       startManualTrace(noneFound
-        ? 'We couldn’t find a building outline within 40 meters. Trace the roof, or enter the home’s square footage.'
+        ? 'We couldn’t find a building outline within 30 meters. Trace the roof, or enter the home’s square footage.'
         : 'Building lookup didn’t finish. Trace the roof, or enter the home’s square footage.');
       return;
     }
     if (gen !== lookupGen) return;
     const primary = choosePrimary(result.buildings);
     state.outlineSource = result.source;
-    result.buildings.forEach((building) => { building.selected = building.id === primary.id; });
-    drawBuildings(result.buildings);
+    presentBuilding(primary, result.buildings);
   }
 
   function selectPlace(place, options) {
@@ -793,7 +802,7 @@
         fillColor: '#8cd102',
         fillOpacity: 1
       }).addTo(map);
-      map.setView([place.lat, place.lng], 19);
+      map.flyTo([place.lat, place.lng], ESTIMATE_CONFIG.defaultCenter.zoom, { duration: 0.75 });
       map.invalidateSize();
     }
     if (skipLookup) {
@@ -824,6 +833,28 @@
     return { footprintSqFt: sqft };
   }
 
+  function formatStreetAddress(item) {
+    const address = item.address || {};
+    const street = address.road || address.pedestrian || address.footway || address.residential || '';
+    const house = address.house_number || '';
+    if (!house || !street) return null;
+    const city = address.city || address.town || address.village || address.hamlet || '';
+    const iso = address['ISO3166-2-lvl4'] || '';
+    const state = iso.startsWith('US-') ? iso.slice(3) : (address.state || '');
+    const zip = address.postcode || '';
+    const stateZip = [state, zip].filter(Boolean).join(' ');
+    if (city && stateZip) return { label: `${house} ${street}, ${city}, ${stateZip}`, city, state };
+    return { label: [`${house} ${street}`, city, stateZip].filter(Boolean).join(', '), city, state };
+  }
+
+  function localBias(item) {
+    const city = (item.city || '').toLowerCase();
+    let score = 0;
+    if (item.state === 'IN' || item.state === 'Indiana') score += 2;
+    if (city === 'lafayette' || city === 'west lafayette') score += 4;
+    return score;
+  }
+
   async function searchNominatim(query, signal) {
     const url = new URL('https://nominatim.openstreetmap.org/search');
     url.searchParams.set('format', 'jsonv2');
@@ -831,6 +862,9 @@
     url.searchParams.set('addressdetails', '1');
     url.searchParams.set('limit', '5');
     url.searchParams.set('countrycodes', 'us');
+    url.searchParams.set('layer', 'address');
+    url.searchParams.set('viewbox', ESTIMATE_CONFIG.addressViewbox);
+    url.searchParams.set('bounded', '0');
     url.searchParams.set('email', ESTIMATE_CONFIG.nominatimEmail);
     const res = await fetch(url.toString(), {
       signal,
@@ -838,32 +872,20 @@
     });
     if (!res.ok) throw new Error('nominatim');
     const data = await res.json();
-    return data.map((item) => ({
-      label: item.display_name,
-      lat: Number(item.lat),
-      lng: Number(item.lon)
-    })).filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng));
-  }
-
-  async function searchPhoton(query, signal) {
-    const url = new URL('https://photon.komoot.io/api/');
-    url.searchParams.set('q', query);
-    url.searchParams.set('limit', '5');
-    url.searchParams.set('lat', String(ESTIMATE_CONFIG.defaultCenter.lat));
-    url.searchParams.set('lon', String(ESTIMATE_CONFIG.defaultCenter.lng));
-    const res = await fetch(url.toString(), { signal, headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error('photon');
-    const data = await res.json();
-    return (data.features || []).map((feature) => {
-      const p = feature.properties || {};
-      if (p.countrycode && p.countrycode !== 'US') return null;
-      const line = [p.housenumber, p.street].filter(Boolean).join(' ');
-      const city = [p.city || p.name, p.state, p.postcode].filter(Boolean).join(', ');
-      const label = [line, city].filter(Boolean).join(', ') || p.name;
-      const coords = feature.geometry && feature.geometry.coordinates;
-      if (!coords) return null;
-      return { label, lat: Number(coords[1]), lng: Number(coords[0]) };
-    }).filter(Boolean);
+    const seen = new Set();
+    const items = [];
+    data.forEach((item) => {
+      const formatted = formatStreetAddress(item);
+      const lat = Number(item.lat);
+      const lng = Number(item.lon);
+      if (!formatted || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const key = formatted.label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push({ label: formatted.label, city: formatted.city, state: formatted.state, lat, lng });
+    });
+    items.sort((a, b) => localBias(b) - localBias(a));
+    return items.slice(0, 5);
   }
 
   function renderSuggestions(items) {
@@ -892,6 +914,7 @@
     });
     list.hidden = false;
     input.setAttribute('aria-expanded', 'true');
+    highlightSuggestion(0);
   }
 
   function highlightSuggestion(index) {
@@ -907,33 +930,34 @@
   function queueSearch(query) {
     clearTimeout(searchTimer);
     if (searchAbort) searchAbort.abort();
-    if (query.trim().length < 3) {
+    const text = query.trim();
+    if (text.length < 3) {
       renderSuggestions([]);
-      setStatus($('#address-status'), 'Type at least 3 characters.');
+      setStatus($('#address-status'), '');
       return;
     }
-    searchTimer = setTimeout(async () => {
-      searchAbort = new AbortController();
-      setStatus($('#address-status'), 'Searching addresses…');
-      try {
-        let items = [];
-        try {
-          items = await searchNominatim(query.trim(), searchAbort.signal);
-        } catch (err) {
-          if (err.name === 'AbortError') return;
-          items = await searchPhoton(query.trim(), searchAbort.signal);
-        }
-        if (!items.length) {
-          try { items = await searchPhoton(query.trim(), searchAbort.signal); } catch (err) { if (err.name === 'AbortError') return; }
-        }
-        renderSuggestions(items);
-        setStatus($('#address-status'), items.length ? `${items.length} match${items.length === 1 ? '' : 'es'}.` : 'No matches. Try a full street address.');
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        renderSuggestions([]);
-        setStatus($('#address-status'), 'Address search is unavailable right now. Try again in a moment.', true);
-      }
-    }, 650);
+    searchTimer = setTimeout(() => { runAddressSearch(text); }, ESTIMATE_CONFIG.nominatimDebounceMs);
+  }
+
+  async function runAddressSearch(text) {
+    const wait = Math.max(0, ESTIMATE_CONFIG.nominatimMinIntervalMs - (Date.now() - lastNominatimAt));
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    const input = $('#address-input');
+    if (!input || input.value.trim() !== text) return;
+    searchAbort = new AbortController();
+    lastNominatimAt = Date.now();
+    setStatus($('#address-status'), 'Searching addresses…');
+    try {
+      const items = await searchNominatim(text, searchAbort.signal);
+      if ($('#address-input').value.trim() !== text) return;
+      renderSuggestions(items);
+      setStatus($('#address-status'), items.length ? '' : 'We couldn\'t find that address', !items.length);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      if ($('#address-input').value.trim() !== text) return;
+      renderSuggestions([]);
+      setStatus($('#address-status'), 'Address search is unavailable right now. Try again in a moment.', true);
+    }
   }
 
   function summaryText(estimate) {
@@ -944,8 +968,7 @@
     if (state.source === 'fallback') {
       lines.push(`Measurement: Estimated footprint from ${Number(state.livingSqFt).toLocaleString('en-US')} sq ft living area, ${state.stories} ${Number(state.stories) === 1 ? 'story' : 'stories'}`);
     } else if (state.source === 'auto') {
-      const count = state.buildings.filter((building) => building.selected).length;
-      lines.push(`Measurement: OpenStreetMap building outline${count > 1 ? ` (${count} buildings)` : ''}, checked on the satellite photo`);
+      lines.push('Measurement: OpenStreetMap building outline, checked on the satellite photo');
     } else {
       lines.push('Measurement: Traced roof outline on satellite imagery');
     }
@@ -1052,9 +1075,10 @@
         event.preventDefault();
         highlightSuggestion(state.suggestIndex - 1);
       } else if (event.key === 'Enter') {
-        if (open && state.suggestIndex >= 0) {
+        const pick = state.suggestIndex >= 0 ? state.suggestions[state.suggestIndex] : state.suggestions[0];
+        if (pick) {
           event.preventDefault();
-          selectPlace(state.suggestions[state.suggestIndex]);
+          selectPlace(pick);
         }
       } else if (event.key === 'Escape') {
         $('#address-list').hidden = true;
@@ -1138,6 +1162,13 @@
         sqft: building.sqft,
         selected: building.selected,
         contains: building.contains
+      })),
+      candidates: (state.candidates || []).map((building) => ({
+        id: building.id,
+        sqft: Math.round(building.sqft),
+        distance: Math.round(building.distance),
+        lat: building.outer.reduce((sum, point) => sum + point[0], 0) / building.outer.length,
+        lng: building.outer.reduce((sum, point) => sum + point[1], 0) / building.outer.length
       }))
     })
   };
