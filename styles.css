@@ -525,7 +525,7 @@ section{position:relative}
 .est-search input,.est-field input,.est-field select,.est-fallback input,.est-fallback select{width:100%;font:inherit;color:var(--text);background:#fff;border:2px solid var(--line);border-radius:14px;padding:14px 16px;min-height:52px}
 .est-search input:focus,.est-field input:focus,.est-field select:focus,.est-fallback input:focus,.est-fallback select:focus{outline:3px solid var(--lime);outline-offset:2px;border-color:var(--lime-600)}
 .est-suggest{position:relative;z-index:30;margin-top:8px;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm);max-height:280px;overflow:auto;padding:6px}
-.est-suggest button{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:12px;padding:12px 12px;min-height:44px;font:inherit;cursor:pointer;color:var(--text)}
+.est-suggest button{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:12px;padding:12px 12px;min-height:44px;font:inherit;cursor:pointer;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .est-suggest button[aria-selected="true"],.est-suggest button:hover{background:#f3f8e6}
 .est-status{min-height:1.4em;margin-top:10px;color:var(--muted);font-size:.95rem}
 .est-status.is-error{color:#8d1d1d}
